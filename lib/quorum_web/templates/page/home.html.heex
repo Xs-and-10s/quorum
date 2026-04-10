@@ -1,0 +1,81 @@
+<main
+  data-signals='{
+    "code": "",
+    "language": "elixir",
+    "flow_id": "",
+    "flow_status": "idle",
+    "security_status": "pending",
+    "logic_status": "pending",
+    "style_status": "pending",
+    "active_reviewers": 0,
+    "error_message": ""
+  }'
+>
+  <!-- Header -->
+  <header class="quorum-header">
+    <h1>Quorum</h1>
+    <p class="tagline">Three minds. One review.</p>
+  </header>
+
+  <!-- Input Panel -->
+  <section class="input-panel">
+    <div class="input-controls">
+      <label for="language-select">Language</label>
+      <select id="language-select" data-bind:language>
+        <option value="elixir">Elixir</option>
+        <option value="typescript">TypeScript</option>
+        <option value="javascript">JavaScript</option>
+      </select>
+    </div>
+
+    <textarea
+      id="code-input"
+      data-bind:code
+      placeholder="Paste your code here…"
+      rows="14"
+    ></textarea>
+
+    <button
+      class="review-btn"
+      data-on:click="@post('/review', {contentType: 'application/json'})"
+      data-show="$flow_status === 'idle' || $flow_status === 'complete' || $flow_status === 'error'"
+    >
+      Review Code
+    </button>
+
+    <p class="error-msg" data-show="$flow_status === 'error'" data-text="$error_message"></p>
+  </section>
+
+  <!-- Status Bar -->
+  <aside class="status-bar" data-show="$flow_status !== 'idle'">
+    <div class="reviewer-status" data-class:complete="$security_status === 'complete'">
+      🛡 Security
+    </div>
+    <div class="reviewer-status" data-class:complete="$logic_status === 'complete'">
+      🧠 Logic
+    </div>
+    <div class="reviewer-status" data-class:complete="$style_status === 'complete'">
+      ✨ Style
+    </div>
+  </aside>
+
+  <!-- Review Results (specialist cards streamed here) -->
+  <section id="review-results" class="review-results"
+    data-show="$flow_status !== 'idle'"
+  ></section>
+
+  <!-- Synthesis (final combined review) -->
+  <section id="synthesis-result" class="synthesis-result"
+    data-show="$flow_status === 'complete'"
+  ></section>
+</main>
+
+<!-- Start SSE stream when flow_id is set -->
+<div
+  data-show="false"
+  data-on:signal-patch__debounce.100ms="
+    if ($flow_id && $flow_status !== 'complete' && $flow_status !== 'error') {
+      @get('/review/' + $flow_id + '/stream')
+    }
+  "
+></div>

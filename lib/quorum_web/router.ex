@@ -4,8 +4,6 @@ defmodule QuorumWeb.Router do
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
-    plug :fetch_live_flash
-    plug :put_root_layout, html: {QuorumWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
   end
@@ -20,8 +18,14 @@ defmodule QuorumWeb.Router do
     get "/", PageController, :home
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", QuorumWeb do
-  #   pipe_through :api
-  # end
+  scope "/", QuorumWeb do
+    pipe_through :api
+
+    post "/review", ReviewController, :create
+  end
+
+  # SSE endpoint — no pipeline (raw conn for streaming)
+  scope "/", QuorumWeb do
+    get "/review/:flow_id/stream", ReviewController, :stream
+  end
 end
