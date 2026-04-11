@@ -9,7 +9,8 @@ defmodule Quorum.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      listeners: [Phoenix.CodeReloader]
     ]
   end
 
@@ -46,7 +47,7 @@ defmodule Quorum.MixProject do
       {:eventstore, "~> 1.4"},
 
       # Orchestration + Validation
-      {:phlox, "~> 0.3.0"},
+      {:phlox, "~> 0.4.0"},
       {:gladius, "~> 0.6.0"},
 
       # Datastar SSE

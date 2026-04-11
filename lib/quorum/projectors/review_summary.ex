@@ -13,7 +13,7 @@ defmodule Quorum.Projectors.ReviewSummary do
       code: evt.code,
       language: evt.language,
       status: "pending",
-      requested_at: evt.requested_at
+      requested_at: parse_datetime(evt.requested_at)
     })
   end)
 
@@ -28,7 +28,7 @@ defmodule Quorum.Projectors.ReviewSummary do
     review_data = %{
       review: evt.review,
       error: evt.error,
-      completed_at: evt.completed_at
+      completed_at: parse_datetime(evt.completed_at)
     }
 
     Ecto.Multi.update_all(multi, :specialist, review_summary_query(evt.review_id),
@@ -40,7 +40,7 @@ defmodule Quorum.Projectors.ReviewSummary do
     synthesis_data = %{
       synthesis: evt.synthesis,
       error: evt.error,
-      completed_at: evt.completed_at
+      completed_at: parse_datetime(evt.completed_at)
     }
 
     Ecto.Multi.update_all(multi, :synthesis, review_summary_query(evt.review_id),
@@ -50,7 +50,7 @@ defmodule Quorum.Projectors.ReviewSummary do
 
   project(%ReviewCompleted{} = evt, _metadata, fn multi ->
     Ecto.Multi.update_all(multi, :complete, review_summary_query(evt.review_id),
-      set: [status: "complete", completed_at: evt.completed_at]
+      set: [status: "complete", completed_at: parse_datetime(evt.completed_at)]
     )
   end)
 
@@ -58,4 +58,11 @@ defmodule Quorum.Projectors.ReviewSummary do
     import Ecto.Query
     from(r in ReviewSummary, where: r.review_id == ^review_id)
   end
+
+  defp parse_datetime(%DateTime{} = dt), do: DateTime.truncate(dt, :second)
+  defp parse_datetime(str) when is_binary(str) do
+    {:ok, dt, _} = DateTime.from_iso8601(str)
+    DateTime.truncate(dt, :second)
+  end
+  defp parse_datetime(nil), do: nil
 end

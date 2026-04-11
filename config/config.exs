@@ -1,7 +1,8 @@
 import Config
 
 config :quorum,
-  ecto_repos: [Quorum.Repo]
+  ecto_repos: [Quorum.Repo],
+  event_stores: [Quorum.EventStore]
 
 # Commanded application
 config :quorum, Quorum.CommandedApp,

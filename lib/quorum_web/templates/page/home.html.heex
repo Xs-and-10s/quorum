@@ -1,5 +1,5 @@
 <main
-  data-signals='{
+  data-star-signals='{
     "code": "",
     "language": "elixir",
     "flow_id": "",
@@ -21,7 +21,7 @@
   <section class="input-panel">
     <div class="input-controls">
       <label for="language-select">Language</label>
-      <select id="language-select" data-bind:language>
+      <select id="language-select" data-star-bind:language>
         <option value="elixir">Elixir</option>
         <option value="typescript">TypeScript</option>
         <option value="javascript">JavaScript</option>
@@ -30,51 +30,52 @@
 
     <textarea
       id="code-input"
-      data-bind:code
+      data-star-bind:code
       placeholder="Paste your code here…"
       rows="14"
     ></textarea>
 
     <button
       class="review-btn"
-      data-on:click="@post('/review', {contentType: 'application/json'})"
-      data-show="$flow_status === 'idle' || $flow_status === 'complete' || $flow_status === 'error'"
+      data-star-on:click="@post('/review', {contentType: 'json'})"
+      data-star-show="$flow_status === 'idle' || $flow_status === 'complete' || $flow_status === 'error'"
     >
       Review Code
     </button>
 
-    <p class="error-msg" data-show="$flow_status === 'error'" data-text="$error_message"></p>
+    <p class="error-msg" data-star-show="$flow_status === 'error'" data-star-text="$error_message"></p>
   </section>
 
   <!-- Status Bar -->
-  <aside class="status-bar" data-show="$flow_status !== 'idle'">
-    <div class="reviewer-status" data-class:complete="$security_status === 'complete'">
+  <aside class="status-bar" data-star-show="$flow_status !== 'idle'">
+    <div class="reviewer-status" data-star-class:complete="$security_status === 'complete'">
       🛡 Security
     </div>
-    <div class="reviewer-status" data-class:complete="$logic_status === 'complete'">
+    <div class="reviewer-status" data-star-class:complete="$logic_status === 'complete'">
       🧠 Logic
     </div>
-    <div class="reviewer-status" data-class:complete="$style_status === 'complete'">
+    <div class="reviewer-status" data-star-class:complete="$style_status === 'complete'">
       ✨ Style
     </div>
   </aside>
 
   <!-- Review Results (specialist cards streamed here) -->
   <section id="review-results" class="review-results"
-    data-show="$flow_status !== 'idle'"
+    data-star-show="$flow_status !== 'idle'"
   ></section>
 
   <!-- Synthesis (final combined review) -->
   <section id="synthesis-result" class="synthesis-result"
-    data-show="$flow_status === 'complete'"
+    data-star-show="$flow_status === 'complete'"
   ></section>
 </main>
 
-<!-- Start SSE stream when flow_id is set -->
+<!-- Trigger SSE stream when flow_id is set -->
 <div
-  data-show="false"
-  data-on:signal-patch__debounce.100ms="
-    if ($flow_id && $flow_status !== 'complete' && $flow_status !== 'error') {
+  style="display:none"
+  data-star-effect="
+    if ($flow_id && $flow_status !== 'complete' && $flow_status !== 'error' && $flow_status !== 'streaming') {
+      $flow_status = 'streaming';
       @get('/review/' + $flow_id + '/stream')
     }
   "

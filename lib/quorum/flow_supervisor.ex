@@ -1,68 +1,45 @@
 defmodule Quorum.FlowSupervisor do
   @moduledoc """
-  DynamicSupervisor for Phlox flow executions.
+  Thin wrapper around Phlox.FlowSupervisor for starting code review flows.
 
-  Each code review runs as a supervised task, tracked by flow_id.
-  Phlox.Monitor broadcasts node completions for SSE streaming.
+  Handles Commanded event dispatch for ReviewRequested, then delegates
+  flow execution to Phlox's built-in OTP supervision.
+
+  Uses Simplect middleware at :full level to compress LLM output tokens
+  and stay under Groq's free-tier 12K TPM limit.
   """
-
-  use DynamicSupervisor
-
-  def start_link(init_arg) do
-    DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_init_arg) do
-    DynamicSupervisor.init(strategy: :one_for_one)
-  end
 
   @doc "Start a new code review flow. Returns {:ok, flow_id}."
   def start_review(code, language) do
     flow_id = generate_flow_id()
-    graph = Quorum.Pipeline.CodeReview.build()
+    flow = Quorum.Pipeline.CodeReview.build()
+    name = String.to_atom(flow_id)
 
-    initial_state = %{
+    shared = %{
       code: code,
-      language: language
+      language: language,
+      flow_id: flow_id,
+      phlox_flow_id: flow_id
     }
-
-    task_spec = %{
-      id: flow_id,
-      start: {Task, :start_link, [fn -> run_flow(flow_id, graph, initial_state) end]},
-      restart: :temporary
-    }
-
-    case DynamicSupervisor.start_child(__MODULE__, task_spec) do
-      {:ok, _pid} -> {:ok, flow_id}
-      error -> error
-    end
-  end
-
-  defp run_flow(flow_id, graph, initial_state) do
-    review_id = flow_id
 
     # Record the review request as an event
     Quorum.CommandedApp.dispatch(%Quorum.Commands.RequestReview{
-      review_id: review_id,
-      code: initial_state.code,
-      language: initial_state.language
+      review_id: flow_id,
+      code: code,
+      language: language
     })
 
-    # Register this flow for monitoring
-    Phlox.Monitor.register(flow_id)
+    case Phlox.FlowSupervisor.start_flow(name, flow, shared,
+           middlewares: [Phlox.Middleware.Simplect],
+           metadata: %{simplect: :full}
+         ) do
+      {:ok, _pid} ->
+        server = Phlox.FlowSupervisor.server(name)
+        Task.start(fn -> Phlox.FlowServer.run(server) end)
+        {:ok, flow_id}
 
-    context =
-      Phlox.Context.new(initial_state)
-      |> Phlox.Context.put(:flow_id, flow_id)
-      |> Phlox.Context.put(:review_id, review_id)
-
-    case Phlox.execute(graph, context, monitor: flow_id) do
-      {:ok, final_context} ->
-        Phlox.Monitor.broadcast(flow_id, {:flow_complete, final_context})
-
-      {:error, reason} ->
-        Phlox.Monitor.broadcast(flow_id, {:flow_error, reason})
+      error ->
+        error
     end
   end
 

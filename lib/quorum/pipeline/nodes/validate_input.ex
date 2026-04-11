@@ -1,12 +1,10 @@
 defmodule Quorum.Pipeline.Nodes.ValidateInput do
-  @moduledoc "Validates and normalizes user input before fan-out to specialists."
+  @moduledoc "Validates and normalizes user input before specialists run."
 
-  @behaviour Phlox.Node
+  use Phlox.Node
 
   import Gladius
 
-  # Schemas as functions, not module attributes — Gladius specs may contain
-  # anonymous functions that Elixir cannot escape at compile time.
   defp input_spec do
     schema(%{
       required(:code)     => string(:filled?),
@@ -14,22 +12,28 @@ defmodule Quorum.Pipeline.Nodes.ValidateInput do
     })
   end
 
-  @impl true
-  def call(context) do
-    input = %{
-      code: Phlox.Context.get(context, :code),
-      language: coerce_language(Phlox.Context.get(context, :language))
+  def prep(shared, _params) do
+    %{
+      code: shared[:code],
+      language: coerce_language(shared[:language])
     }
+  end
 
-    case Gladius.conform(input_spec(), input) do
-      {:ok, validated} ->
-        context
-        |> Phlox.Context.put(:validated_code, validated.code)
-        |> Phlox.Context.put(:validated_language, Atom.to_string(validated.language))
+  def exec(input, _params) do
+    Gladius.conform(input_spec(), input)
+  end
 
-      {:error, errors} ->
-        Phlox.Context.halt(context, {:validation_error, errors})
-    end
+  def post(shared, _prep, {:ok, validated}, _params) do
+    shared =
+      shared
+      |> Map.put(:validated_code, validated.code)
+      |> Map.put(:validated_language, Atom.to_string(validated.language))
+
+    {:default, shared}
+  end
+
+  def post(shared, _prep, {:error, errors}, _params) do
+    {"error", Map.put(shared, :error, {:validation_error, errors})}
   end
 
   defp coerce_language(nil), do: :elixir

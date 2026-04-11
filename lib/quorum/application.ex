@@ -6,12 +6,10 @@ defmodule Quorum.Application do
     children = [
       QuorumWeb.Telemetry,
       Quorum.Repo,
-      Quorum.EventStore,
       Quorum.CommandedApp,
       Quorum.Projectors.ReviewSummary,
       {DNSCluster, query: Application.get_env(:quorum, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Quorum.PubSub},
-      Quorum.FlowSupervisor,
       QuorumWeb.Endpoint
     ]
 
