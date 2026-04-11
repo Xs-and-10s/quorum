@@ -1,3 +1,48 @@
+<script>
+window.__codeExamples = {
+  elixir: `def fetch_user(id) do
+  query = "SELECT * FROM users WHERE id = \#{id}"
+  Repo.query!(query)
+end`,
+  typescript: `const API_KEY = "sk-1234567890abcdef";
+
+function doStuff(d: any) {
+  const r = [];
+  for (let i = 0; i <= d.length; i++) {
+    const x = eval(d[i].formula);
+    r.push(x);
+  }
+  return r;
+}
+
+export async function getData(url: string) {
+  const res = await fetch(url + "?key=" + API_KEY);
+  const j = res.json();
+  return j.data.map((item: any) => doStuff(item));
+}`,
+  javascript: `var password = "admin123";
+
+function processUsers(data) {
+  var result = [];
+  for (var i = 0; i <= data.length; i++) {
+    var html = "<div>" + data[i].name + "</div>";
+    document.getElementById("users").innerHTML += html;
+    if (data[i].role == "admin") {
+      result.push(data[i]);
+    }
+  }
+  return result;
+}
+
+function login(user, pass) {
+  if (pass == password) {
+    document.cookie = "auth=" + user + ";";
+    return true;
+  }
+}`
+};
+</script>
+
 <main
   data-star-signals='{
     "code": "",
@@ -10,6 +55,7 @@
     "active_reviewers": 0,
     "error_message": ""
   }'
+  data-star-init="$code = window.__codeExamples[$language]"
 >
   <!-- Header -->
   <header class="quorum-header">
@@ -21,7 +67,11 @@
   <section class="input-panel">
     <div class="input-controls">
       <label for="language-select">Language</label>
-      <select id="language-select" data-star-bind:language>
+      <select
+        id="language-select"
+        data-star-bind:language
+        data-star-on:change="$code = window.__codeExamples[$language]; $flow_status = 'idle'"
+      >
         <option value="elixir">Elixir</option>
         <option value="typescript">TypeScript</option>
         <option value="javascript">JavaScript</option>
