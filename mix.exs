@@ -4,7 +4,7 @@ defmodule Quorum.MixProject do
   def project do
     [
       app: :quorum,
-      version: "0.1.0",
+      version: "1.0.0",
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -50,7 +50,7 @@ defmodule Quorum.MixProject do
       {:req, "~> 0.5"},
 
       # Orchestration + Validation
-      {:phlox, "~> 0.5.0"},
+      {:phlox, "~> 0.5.2"},
       {:gladius, "~> 0.6.0"},
 
       # Datastar SSE

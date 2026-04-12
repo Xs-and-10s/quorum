@@ -1,7 +1,7 @@
 defmodule QuorumWeb.ReviewController do
   use QuorumWeb, :controller
 
-  alias Datastar.{SSE, Elements, Signals}
+  alias Datastar.{SSE, Elements, Signals, Script}
   alias Quorum.FlowSupervisor
 
   @specialist_nodes [:security, :logic, :style]
@@ -25,9 +25,6 @@ defmodule QuorumWeb.ReviewController do
 
   @doc """
   GET /review/:flow_id/stream — SSE endpoint via datastar_ex.
-
-  Sends skeleton cards with Phlox spinners immediately, then replaces
-  them with real content as each specialist completes.
   """
   def stream(conn, %{"flow_id" => flow_id}) do
     :ok = Phlox.Monitor.subscribe(flow_id)
@@ -40,7 +37,14 @@ defmodule QuorumWeb.ReviewController do
 
     sse = SSE.new(conn)
 
-    # Send skeleton cards immediately for all specialists + synthesis
+    # Clear any existing cards from a previous SSE connection (prevents duplicates)
+    sse_send(sse, fn ->
+      sse
+      |> Elements.patch("", selector: "#review-results", mode: :inner)
+      |> Elements.patch("", selector: "#synthesis-result", mode: :inner)
+    end)
+
+    # Send skeleton cards
     sse_send(sse, fn ->
       for node_name <- @specialist_nodes do
         Elements.patch(sse, render_skeleton_card(node_name),
@@ -51,7 +55,7 @@ defmodule QuorumWeb.ReviewController do
         selector: "#synthesis-result", mode: :inner)
     end)
 
-    # Catch up on nodes that completed before we subscribed
+    # Catch up on already-completed nodes
     {sse, emitted} = catch_up(sse, flow_id)
 
     # Check if flow is already done
@@ -87,16 +91,12 @@ defmodule QuorumWeb.ReviewController do
               nil -> acc
               result ->
                 dispatch_specialist(flow_id, result)
-                sse_send(sse, fn ->
-                  sse
-                  |> Elements.patch(render_specialist_card(node_name, result),
-                       selector: "#card-#{node_name}", mode: :outer)
-                  |> Signals.patch(%{"#{node_name}_status" => "complete"})
-                end)
+                emit_specialist_card(sse, node_name, result)
                 MapSet.put(acc, node_name)
             end
           end)
 
+        maybe_all_specialists_done(sse, emitted)
         {sse, emitted}
     end
   end
@@ -109,15 +109,12 @@ defmodule QuorumWeb.ReviewController do
 
           if result do
             dispatch_specialist(flow_id, result)
-            sse_send(sse, fn ->
-              sse
-              |> Elements.patch(render_specialist_card(node_name, result),
-                   selector: "#card-#{node_name}", mode: :outer)
-              |> Signals.patch(%{"#{node_name}_status" => "complete"})
-            end)
+            emit_specialist_card(sse, node_name, result)
           end
 
-          stream_loop(sse, flow_id, MapSet.put(emitted, node_name))
+          new_emitted = MapSet.put(emitted, node_name)
+          maybe_all_specialists_done(sse, new_emitted)
+          stream_loop(sse, flow_id, new_emitted)
         else
           stream_loop(sse, flow_id, emitted)
         end
@@ -130,10 +127,45 @@ defmodule QuorumWeb.ReviewController do
 
     after
       90_000 ->
-        sse_send(sse, fn ->
-          Signals.patch(sse, %{"flow_status" => "timeout"})
-        end)
+        # Before giving up, check if the flow completed while we were waiting
+        # (handles race where :flow_done went to a previous SSE connection)
+        case Phlox.Monitor.get(flow_id) do
+          %{status: :done, shared: shared} ->
+            emit_remaining_specialists(sse, flow_id, shared, emitted)
+            emit_synthesis(sse, flow_id, shared)
+
+          _ ->
+            sse_send(sse, fn ->
+              Signals.patch(sse, %{"flow_status" => "timeout"})
+            end)
+        end
     end
+  end
+
+  # When all 3 specialists are done, scroll to synthesis and update its label
+  defp maybe_all_specialists_done(sse, emitted) do
+    if MapSet.size(emitted) == length(@specialist_nodes) do
+      sse_send(sse, fn ->
+        # Update the synthesis skeleton label
+        sse
+        |> Elements.patch(
+            ~s(<span class="loading-label synthesizing">synthesizing specialists' findings…</span>),
+            selector: "#card-synthesis .loading-label",
+            mode: :outer
+          )
+        |> Script.execute(scroll_to("card-synthesis"))
+      end)
+    end
+  end
+
+  defp emit_specialist_card(sse, node_name, result) do
+    sse_send(sse, fn ->
+      sse
+      |> Elements.patch(render_specialist_card(node_name, result),
+           selector: "#card-#{node_name}", mode: :outer)
+      |> Signals.patch(%{"#{node_name}_status" => "complete"})
+      |> Script.execute(scroll_to("card-#{node_name}"))
+    end)
   end
 
   defp emit_remaining_specialists(sse, flow_id, shared, emitted) do
@@ -142,12 +174,7 @@ defmodule QuorumWeb.ReviewController do
         nil -> :skip
         result ->
           dispatch_specialist(flow_id, result)
-          sse_send(sse, fn ->
-            sse
-            |> Elements.patch(render_specialist_card(node_name, result),
-                 selector: "#card-#{node_name}", mode: :outer)
-            |> Signals.patch(%{"#{node_name}_status" => "complete"})
-          end)
+          emit_specialist_card(sse, node_name, result)
       end
     end
   end
@@ -167,8 +194,13 @@ defmodule QuorumWeb.ReviewController do
         |> Elements.patch(render_synthesis_card(synthesis),
              selector: "#card-synthesis", mode: :outer)
         |> Signals.patch(%{"flow_status" => "complete", "active_reviewers" => 0})
+        |> Script.execute(scroll_to("card-synthesis"))
       end)
     end
+  end
+
+  defp scroll_to(element_id) do
+    "setTimeout(function(){var el=document.getElementById('#{element_id}');if(el)el.scrollIntoView({behavior:'smooth',block:'nearest'})},100)"
   end
 
   defp sse_send(_sse, fun) do
@@ -207,7 +239,7 @@ defmodule QuorumWeb.ReviewController do
   end
 
   # ---------------------------------------------------------------------------
-  # Skeleton cards (loading state with Phlox spinner)
+  # Skeleton cards
   # ---------------------------------------------------------------------------
 
   defp render_skeleton_card(node_name) do
@@ -251,7 +283,7 @@ defmodule QuorumWeb.ReviewController do
   end
 
   # ---------------------------------------------------------------------------
-  # Completed cards (replace skeletons via mode: :outer)
+  # Completed cards
   # ---------------------------------------------------------------------------
 
   defp render_specialist_card(node_name, %{specialist: name, review: review} = result) do

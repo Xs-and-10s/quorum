@@ -110,15 +110,27 @@ function login(user, pass) {
     <p class="error-msg" data-star-show="$flow_status === 'error'" data-star-text="$error_message"></p>
   </section>
 
-  <!-- Status Bar -->
+  <!-- Status Bar — badges scroll to their card when complete -->
   <aside class="status-bar" data-star-show="$flow_status !== 'idle'">
-    <div class="reviewer-status" data-star-class:complete="$security_status === 'complete'">
+    <div
+      class="reviewer-status"
+      data-star-class:complete="$security_status === 'complete'"
+      data-star-on:click="if ($security_status === 'complete') { document.getElementById('card-security').scrollIntoView({behavior:'smooth',block:'nearest'}) }"
+    >
       🛡 Security
     </div>
-    <div class="reviewer-status" data-star-class:complete="$logic_status === 'complete'">
+    <div
+      class="reviewer-status"
+      data-star-class:complete="$logic_status === 'complete'"
+      data-star-on:click="if ($logic_status === 'complete') { document.getElementById('card-logic').scrollIntoView({behavior:'smooth',block:'nearest'}) }"
+    >
       🧠 Logic
     </div>
-    <div class="reviewer-status" data-star-class:complete="$style_status === 'complete'">
+    <div
+      class="reviewer-status"
+      data-star-class:complete="$style_status === 'complete'"
+      data-star-on:click="if ($style_status === 'complete') { document.getElementById('card-style').scrollIntoView({behavior:'smooth',block:'nearest'}) }"
+    >
       ✨ Style
     </div>
   </aside>
