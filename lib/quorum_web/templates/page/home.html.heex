@@ -61,7 +61,18 @@ function login(user, pass) {
       <select
         id="language-select"
         data-star-bind:language
-        data-star-on:change="$code = window.__codeExamples[$language]; $flow_status = 'idle'"
+        data-star-on:change="
+          $code = window.__codeExamples[$language];
+          $flow_id = '';
+          $flow_status = 'idle';
+          $security_status = 'pending';
+          $logic_status = 'pending';
+          $style_status = 'pending';
+          $active_reviewers = 0;
+          $error_message = '';
+          document.getElementById('review-results').innerHTML = '';
+          document.getElementById('synthesis-result').innerHTML = '';
+        "
       >
         <option value="elixir">Elixir</option>
         <option value="typescript">TypeScript</option>
