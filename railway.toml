@@ -2,7 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "mix ecto.migrate && mix phx.server"
+startCommand = "mix event_store.init && mix ecto.migrate && mix phx.server"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
