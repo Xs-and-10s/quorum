@@ -23,22 +23,13 @@ export async function getData(url: string) {
   javascript: `var password = "admin123";
 
 function processUsers(data) {
-  var result = [];
   for (var i = 0; i <= data.length; i++) {
-    var html = "<div>" + data[i].name + "</div>";
-    document.getElementById("users").innerHTML += html;
-    if (data[i].role == "admin") {
-      result.push(data[i]);
-    }
+    document.getElementById("users").innerHTML += "<div>" + data[i].name + "</div>";
   }
-  return result;
 }
 
 function login(user, pass) {
-  if (pass == password) {
-    document.cookie = "auth=" + user + ";";
-    return true;
-  }
+  if (pass == password) return true;
 }`
 };
 </script>
@@ -88,9 +79,21 @@ function login(user, pass) {
     <button
       class="review-btn"
       data-star-on:click="@post('/review', {contentType: 'json'})"
-      data-star-show="$flow_status === 'idle' || $flow_status === 'complete' || $flow_status === 'error'"
+      data-star-attr:disabled="$flow_status === 'streaming'"
     >
-      Review Code
+      <span data-star-show="$flow_status !== 'streaming'">Review Code</span>
+      <span
+        class="phlox-spinner"
+        role="status"
+        aria-label="Reviewing code"
+        data-star-class:spinning="$flow_status === 'streaming'"
+        data-star-show="$flow_status === 'streaming'"
+        style="--phlox-spinner-size: 24px"
+      >
+        <span class="phlox-ring phlox-ring-outer"></span>
+        <span class="phlox-ring phlox-ring-middle"></span>
+        <span class="phlox-ring phlox-ring-inner"></span>
+      </span>
     </button>
 
     <p class="error-msg" data-star-show="$flow_status === 'error'" data-star-text="$error_message"></p>
@@ -109,14 +112,14 @@ function login(user, pass) {
     </div>
   </aside>
 
-  <!-- Review Results (specialist cards streamed here) -->
+  <!-- Review Results (skeleton + completed cards streamed here) -->
   <section id="review-results" class="review-results"
     data-star-show="$flow_status !== 'idle'"
   ></section>
 
-  <!-- Synthesis (final combined review) -->
+  <!-- Synthesis (skeleton during streaming, replaced on completion) -->
   <section id="synthesis-result" class="synthesis-result"
-    data-star-show="$flow_status === 'complete'"
+    data-star-show="$flow_status === 'streaming' || $flow_status === 'complete'"
   ></section>
 </main>
 

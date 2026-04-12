@@ -5,8 +5,8 @@ defmodule Quorum.FlowSupervisor do
   Handles Commanded event dispatch for ReviewRequested, then delegates
   flow execution to Phlox's built-in OTP supervision.
 
-  Uses Simplect middleware at :full level to compress LLM output tokens
-  and stay under Groq's free-tier 12K TPM limit.
+  Token compression is handled per-node via Phlox.Interceptor.Complect
+  (declared in each node module), not via pipeline middleware.
   """
 
   @doc "Start a new code review flow. Returns {:ok, flow_id}."
@@ -29,10 +29,7 @@ defmodule Quorum.FlowSupervisor do
       language: language
     })
 
-    case Phlox.FlowSupervisor.start_flow(name, flow, shared,
-           middlewares: [Phlox.Middleware.Simplect],
-           metadata: %{simplect: :full}
-         ) do
+    case Phlox.FlowSupervisor.start_flow(name, flow, shared) do
       {:ok, _pid} ->
         server = Phlox.FlowSupervisor.server(name)
         Task.start(fn -> Phlox.FlowServer.run(server) end)

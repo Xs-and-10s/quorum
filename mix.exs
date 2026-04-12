@@ -46,15 +46,15 @@ defmodule Quorum.MixProject do
       {:commanded_ecto_projections, "~> 1.3"},
       {:eventstore, "~> 1.4"},
 
+      # HTTP client for LLMs
+      {:req, "~> 0.5"},
+
       # Orchestration + Validation
-      {:phlox, "~> 0.4.0"},
+      {:phlox, "~> 0.5.0"},
       {:gladius, "~> 0.6.0"},
 
       # Datastar SSE
       {:datastar_ex, "~> 0.1"},
-
-      # HTTP client for Groq
-      {:req, "~> 0.5"},
 
       # Static analysis (dev/test)
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

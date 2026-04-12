@@ -1,7 +1,7 @@
 defmodule Quorum.Pipeline.Nodes.Synthesize do
   use Phlox.Node
 
-  intercept Phlox.Interceptor.Complect, level: :lite
+  intercept Phlox.Interceptor.Complect, level: :full
 
   def prep(shared, _params) do
     reviews =
@@ -14,12 +14,7 @@ defmodule Quorum.Pipeline.Nodes.Synthesize do
       |> Enum.map(fn r -> "## #{r.specialist} Review\n#{r.review}" end)
       |> Enum.join("\n\n---\n\n")
 
-    {review_text, shared[:validated_language]}
-  end
-
-  def exec({review_text, language}, params) do
-    provider = Map.fetch!(params, :llm)
-    llm_opts = Map.get(params, :llm_opts, [])
+    language = shared[:validated_language]
 
     system = """
     You are a lead engineer synthesizing three specialist code reviews
@@ -32,26 +27,23 @@ defmodule Quorum.Pipeline.Nodes.Synthesize do
 
     user = "Language: #{language}\n\n#{review_text}"
 
-    messages = [
+    [
       %{role: "system", content: system},
       %{role: "user", content: user}
     ]
-
-    try do
-      {:ok, Phlox.LLM.chat!(provider, messages, llm_opts)}
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
   end
 
-  def post(shared, _prep, {:ok, synthesis}, _params) do
-    result = %{
-      specialist: "Synthesis",
-      review: synthesis,
-      completed_at: DateTime.utc_now()
-    }
+  # Let chat! raise — Phlox retry catches and retries
+  def exec(messages, params) do
+    provider = Map.fetch!(params, :llm)
+    llm_opts = Map.get(params, :llm_opts, [])
 
-    {:default, Map.put(shared, :synthesis, result)}
+    Phlox.LLM.chat!(provider, messages, llm_opts)
+  end
+
+  # Called when all retries exhausted — degrade gracefully
+  def exec_fallback(_prep, _params, exception) do
+    {:error, Exception.message(exception)}
   end
 
   def post(shared, _prep, {:error, reason}, _params) do
@@ -59,6 +51,16 @@ defmodule Quorum.Pipeline.Nodes.Synthesize do
       specialist: "Synthesis",
       review: "Synthesis failed: #{reason}",
       error: true,
+      completed_at: DateTime.utc_now()
+    }
+
+    {:default, Map.put(shared, :synthesis, result)}
+  end
+
+  def post(shared, _prep, review, _params) when is_binary(review) do
+    result = %{
+      specialist: "Synthesis",
+      review: review,
       completed_at: DateTime.utc_now()
     }
 

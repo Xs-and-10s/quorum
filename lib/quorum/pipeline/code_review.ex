@@ -20,13 +20,17 @@ defmodule Quorum.Pipeline.CodeReview do
     Graph.new()
     |> Graph.add_node(:validate_input, Quorum.Pipeline.Nodes.ValidateInput)
     |> Graph.add_node(:security, Quorum.Pipeline.Nodes.SecurityReview,
-         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]})
+         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]},
+         max_retries: 2, wait_ms: 6_000)
     |> Graph.add_node(:logic, Quorum.Pipeline.Nodes.LogicReview,
-         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]})
+         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]},
+         max_retries: 2, wait_ms: 6_000)
     |> Graph.add_node(:style, Quorum.Pipeline.Nodes.StyleReview,
-         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]})
+         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]},
+         max_retries: 2, wait_ms: 6_000)
     |> Graph.add_node(:synthesize, Quorum.Pipeline.Nodes.Synthesize,
-         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]})
+         %{llm: Phlox.LLM.Groq, llm_opts: [model: "llama-3.3-70b-versatile"]},
+         max_retries: 2, wait_ms: 6_000)
     |> Graph.connect(:validate_input, :security)
     |> Graph.connect(:security, :logic)
     |> Graph.connect(:logic, :style)

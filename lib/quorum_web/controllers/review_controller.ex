@@ -26,18 +26,11 @@ defmodule QuorumWeb.ReviewController do
   @doc """
   GET /review/:flow_id/stream — SSE endpoint via datastar_ex.
 
-  Subscribes to Phlox.Monitor for this flow_id, then streams
-  each node completion as Datastar signal patches + element patches.
-
-  Handles the race condition where the flow may partially or fully
-  complete before the SSE connection opens by checking Monitor state
-  immediately after subscribing.
+  Sends skeleton cards with Phlox spinners immediately, then replaces
+  them with real content as each specialist completes.
   """
   def stream(conn, %{"flow_id" => flow_id}) do
-    # Subscribe first — any events after this point land in our mailbox
     :ok = Phlox.Monitor.subscribe(flow_id)
-
-    server = Phlox.FlowSupervisor.server(String.to_atom(flow_id))
 
     conn =
       conn
@@ -47,51 +40,59 @@ defmodule QuorumWeb.ReviewController do
 
     sse = SSE.new(conn)
 
+    # Send skeleton cards immediately for all specialists + synthesis
+    sse_send(sse, fn ->
+      for node_name <- @specialist_nodes do
+        Elements.patch(sse, render_skeleton_card(node_name),
+          selector: "#review-results", mode: :append)
+      end
+
+      Elements.patch(sse, render_skeleton_synthesis(),
+        selector: "#synthesis-result", mode: :inner)
+    end)
+
     # Catch up on nodes that completed before we subscribed
-    {sse, emitted} = catch_up(sse, flow_id, server)
+    {sse, emitted} = catch_up(sse, flow_id)
 
     # Check if flow is already done
     case Phlox.Monitor.get(flow_id) do
-      %{status: :done} ->
-        emit_synthesis(sse, server, flow_id)
+      %{status: :done, shared: shared} ->
+        emit_remaining_specialists(sse, flow_id, shared, emitted)
+        emit_synthesis(sse, flow_id, shared)
 
       _ ->
-        stream_loop(sse, flow_id, server, emitted)
+        stream_loop(sse, flow_id, emitted)
     end
 
-    # Return the chunked conn — Phoenix will close it
-    conn
+    halt(conn)
   end
 
-  # Emit results for nodes that already completed before SSE connected
-  defp catch_up(sse, flow_id, server) do
+  defp catch_up(sse, flow_id) do
     case Phlox.Monitor.get(flow_id) do
       nil ->
         {sse, MapSet.new()}
 
-      snapshot ->
-        done_nodes =
-          snapshot.nodes
-          |> Enum.filter(fn {_id, info} -> info.status == :done end)
-          |> Enum.map(fn {id, _info} -> id end)
-          |> Enum.filter(&(&1 in @specialist_nodes))
+      %{shared: nil} ->
+        {sse, MapSet.new()}
 
-        %{shared: shared} = Phlox.FlowServer.state(server)
+      %{nodes: nodes, shared: shared} ->
+        done_specialists =
+          nodes
+          |> Enum.filter(fn {id, info} -> id in @specialist_nodes and info.status == :done end)
+          |> Enum.map(fn {id, _} -> id end)
 
         emitted =
-          Enum.reduce(done_nodes, MapSet.new(), fn node_name, acc ->
+          Enum.reduce(done_specialists, MapSet.new(), fn node_name, acc ->
             case extract_review(node_name, shared) do
-              nil ->
-                acc
-
+              nil -> acc
               result ->
                 dispatch_specialist(flow_id, result)
-                html = render_specialist_card(result)
-
-                sse
-                |> Elements.patch(html, selector: "#review-results", mode: :append)
-                |> Signals.patch(%{"#{node_name}_status" => "complete"})
-
+                sse_send(sse, fn ->
+                  sse
+                  |> Elements.patch(render_specialist_card(node_name, result),
+                       selector: "#card-#{node_name}", mode: :outer)
+                  |> Signals.patch(%{"#{node_name}_status" => "complete"})
+                end)
                 MapSet.put(acc, node_name)
             end
           end)
@@ -100,44 +101,58 @@ defmodule QuorumWeb.ReviewController do
     end
   end
 
-  defp stream_loop(sse, flow_id, server, emitted) do
+  defp stream_loop(sse, flow_id, emitted) do
     receive do
-      {:phlox_monitor, :node_done, snapshot} ->
-        node_name = snapshot.current_id
-
+      {:phlox_monitor, :node_done, %{current_id: node_name, shared: shared}} ->
         if node_name in @specialist_nodes and node_name not in emitted do
-          %{shared: shared} = Phlox.FlowServer.state(server)
           result = extract_review(node_name, shared)
 
           if result do
             dispatch_specialist(flow_id, result)
-            html = render_specialist_card(result)
-
-            sse
-            |> Elements.patch(html, selector: "#review-results", mode: :append)
-            |> Signals.patch(%{"#{node_name}_status" => "complete"})
+            sse_send(sse, fn ->
+              sse
+              |> Elements.patch(render_specialist_card(node_name, result),
+                   selector: "#card-#{node_name}", mode: :outer)
+              |> Signals.patch(%{"#{node_name}_status" => "complete"})
+            end)
           end
 
-          stream_loop(sse, flow_id, server, MapSet.put(emitted, node_name))
+          stream_loop(sse, flow_id, MapSet.put(emitted, node_name))
         else
-          stream_loop(sse, flow_id, server, emitted)
+          stream_loop(sse, flow_id, emitted)
         end
 
-      {:phlox_monitor, :flow_done, _snapshot} ->
-        emit_synthesis(sse, server, flow_id)
+      {:phlox_monitor, :flow_done, %{shared: shared}} ->
+        emit_synthesis(sse, flow_id, shared)
 
       {:phlox_monitor, _event, _snapshot} ->
-        # Ignore :flow_started, :node_started
-        stream_loop(sse, flow_id, server, emitted)
+        stream_loop(sse, flow_id, emitted)
 
     after
       90_000 ->
-        Signals.patch(sse, %{"flow_status" => "timeout"})
+        sse_send(sse, fn ->
+          Signals.patch(sse, %{"flow_status" => "timeout"})
+        end)
     end
   end
 
-  defp emit_synthesis(sse, server, flow_id) do
-    %{shared: shared} = Phlox.FlowServer.state(server)
+  defp emit_remaining_specialists(sse, flow_id, shared, emitted) do
+    for node_name <- @specialist_nodes, node_name not in emitted do
+      case extract_review(node_name, shared) do
+        nil -> :skip
+        result ->
+          dispatch_specialist(flow_id, result)
+          sse_send(sse, fn ->
+            sse
+            |> Elements.patch(render_specialist_card(node_name, result),
+                 selector: "#card-#{node_name}", mode: :outer)
+            |> Signals.patch(%{"#{node_name}_status" => "complete"})
+          end)
+      end
+    end
+  end
+
+  defp emit_synthesis(sse, flow_id, shared) do
     synthesis = Map.get(shared, :synthesis)
 
     if synthesis do
@@ -147,11 +162,26 @@ defmodule QuorumWeb.ReviewController do
         error: Map.get(synthesis, :error)
       })
 
-      synth_html = render_synthesis_card(synthesis)
+      sse_send(sse, fn ->
+        sse
+        |> Elements.patch(render_synthesis_card(synthesis),
+             selector: "#card-synthesis", mode: :outer)
+        |> Signals.patch(%{"flow_status" => "complete", "active_reviewers" => 0})
+      end)
+    end
+  end
 
-      sse
-      |> Elements.patch(synth_html, selector: "#synthesis-result", mode: :inner)
-      |> Signals.patch(%{"flow_status" => "complete", "active_reviewers" => 0})
+  defp sse_send(_sse, fun) do
+    try do
+      fun.()
+    rescue
+      e in RuntimeError ->
+        if String.contains?(Exception.message(e), "closed") do
+          require Logger
+          Logger.debug("SSE connection closed, stopping stream")
+        else
+          reraise e, __STACKTRACE__
+        end
     end
   end
 
@@ -176,11 +206,59 @@ defmodule QuorumWeb.ReviewController do
     if key, do: Map.get(shared, key)
   end
 
-  defp render_specialist_card(%{specialist: name, review: review} = result) do
+  # ---------------------------------------------------------------------------
+  # Skeleton cards (loading state with Phlox spinner)
+  # ---------------------------------------------------------------------------
+
+  defp render_skeleton_card(node_name) do
+    name = specialist_label(node_name)
+    icon = icon_for(name)
+    accent = accent_for(node_name)
+
+    """
+    <article id="card-#{node_name}" class="specialist-card loading" data-specialist="#{node_name}" style="--card-accent: #{accent}">
+      <header>
+        <h3>#{icon} #{name}</h3>
+        <span class="loading-label">analyzing…</span>
+      </header>
+      <div class="review-content loading-body">
+        <span class="phlox-spinner spinning" style="--phlox-spinner-size: 28px">
+          <span class="phlox-ring phlox-ring-outer"></span>
+          <span class="phlox-ring phlox-ring-middle"></span>
+          <span class="phlox-ring phlox-ring-inner"></span>
+        </span>
+      </div>
+    </article>
+    """
+  end
+
+  defp render_skeleton_synthesis do
+    """
+    <article id="card-synthesis" class="synthesis-card loading">
+      <header>
+        <h3>⚡ Synthesis</h3>
+        <span class="loading-label">waiting for specialists…</span>
+      </header>
+      <div class="review-content loading-body">
+        <span class="phlox-spinner spinning" style="--phlox-spinner-size: 28px">
+          <span class="phlox-ring phlox-ring-outer"></span>
+          <span class="phlox-ring phlox-ring-middle"></span>
+          <span class="phlox-ring phlox-ring-inner"></span>
+        </span>
+      </div>
+    </article>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Completed cards (replace skeletons via mode: :outer)
+  # ---------------------------------------------------------------------------
+
+  defp render_specialist_card(node_name, %{specialist: name, review: review} = result) do
     error_class = if Map.get(result, :error), do: " error", else: ""
 
     """
-    <article class="specialist-card#{error_class}" data-specialist="#{String.downcase(name)}">
+    <article id="card-#{node_name}" class="specialist-card#{error_class}" data-specialist="#{String.downcase(name)}">
       <header>
         <h3>#{icon_for(name)} #{name}</h3>
         <time datetime="#{result.completed_at}">#{format_time(result.completed_at)}</time>
@@ -193,8 +271,10 @@ defmodule QuorumWeb.ReviewController do
   end
 
   defp render_synthesis_card(%{review: review} = result) do
+    error_class = if Map.get(result, :error), do: " error", else: ""
+
     """
-    <article class="synthesis-card">
+    <article id="card-synthesis" class="synthesis-card#{error_class}">
       <header>
         <h3>⚡ Synthesis</h3>
         <time datetime="#{result.completed_at}">#{format_time(result.completed_at)}</time>
@@ -205,6 +285,18 @@ defmodule QuorumWeb.ReviewController do
     </article>
     """
   end
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+  # ---------------------------------------------------------------------------
+
+  defp specialist_label(:security), do: "Security"
+  defp specialist_label(:logic), do: "Logic"
+  defp specialist_label(:style), do: "Style"
+
+  defp accent_for(:security), do: "var(--q-security)"
+  defp accent_for(:logic), do: "var(--q-logic)"
+  defp accent_for(:style), do: "var(--q-style)"
 
   defp icon_for("Security"), do: "🛡"
   defp icon_for("Logic"), do: "🧠"
