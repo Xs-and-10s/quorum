@@ -1,5 +1,6 @@
-[phases.setup]
-nixPkgs = ["elixir_1_19", "erlang_28"]
+[variables]
+NIXPACKS_ELIXIR_VERSION = "1.18"
+NIXPACKS_ERLANG_VERSION = "27"
 
 [phases.build]
 cmds = [
